@@ -156,3 +156,72 @@ db.prescriptions.aggregate([
 ### Примечания:
 1. Замените названия коллекций и полей на актуальные в вашей БД.
 2. Для точного выполнения задач могут потребоваться дополнительные этапы агрегации или индексы.
+
+
+
+
+
+Вот обновленные MongoDB-запросы для вашей базы данных:
+
+### 1. Топ 2 заболеваний по распространенности среди пациентов
+```javascript
+db.peopleNew.aggregate([
+  { $unwind: "$diseases" },
+  { $group: { _id: "$diseases", count: { $sum: 1 } } },
+  { $lookup: { from: "disease", localField: "_id", foreignField: "_id", as: "disease_info" } },
+  { $unwind: "$disease_info" },
+  { $sort: { count: -1 } },
+  { $limit: 2 },
+  { $project: { disease_name: "$disease_info.name", count: 1, _id: 0 } }
+])
+```
+
+### 2. Пациенты старше 30 лет с указанными заболеваниями (первые 2)
+```javascript
+db.peopleNew.aggregate([
+  { $match: { age: { $gt: 30 } } },
+  { $lookup: { from: "disease", localField: "diseases", foreignField: "_id", as: "disease_data" } },
+  { $match: { "disease_data.name": { $in: ["Гипертония", "Диабет"] } } },
+  { $sort: { age: 1 } },
+  { $limit: 2 },
+  { $project: { name: 1, age: 1, diseases: "$disease_data.name" } }
+])
+```
+
+### 3. Количество врачей по возрастным группам для определенной специальности
+```javascript
+db.doctor.aggregate([
+  { $match: { specialty: "Терапевт" } },
+  { 
+    $bucket: {
+      groupBy: "$experience", // Используем опыт как возрастной аналог
+      boundaries: [0, 5, 10, 15, 20],
+      default: "Other",
+      output: { count: { $sum: 1 } }
+    }
+  }
+])
+```
+
+### 4. Количество рецептов по специальностям врачей
+```javascript
+db.prescriptionNew.aggregate([
+  { $lookup: { from: "peopleNew", localField: "person", foreignField: "_id", as: "patient" } },
+  { $unwind: "$patient" },
+  { $lookup: { from: "doctor", localField: "patient.doctor", foreignField: "_id", as: "doctor" } },
+  { $unwind: "$doctor" },
+  { $group: { _id: "$doctor.specialty", total_prescriptions: { $sum: 1 } } },
+  { $match: { _id: { $in: ["Терапевт", "Кардиолог"] } } }
+])
+```
+
+### Дополнительные пояснения:
+1. Для **запроса 1** мы сначала разворачиваем массив болезней у пациентов, затем группируем по болезням и связываем с коллекцией disease для получения названий.
+
+2. В **запросе 2** используется двойной lookup - сначала к болезням, затем фильтрация по названиям.
+
+3. В **запросе 3** предполагается, что "возрастная группа" врачей определяется их опытом (поле `experience`), так как возраст врачей явно не указан.
+
+4. **Запрос 4** проходит цепочку связей: рецепт → пациент → врач, чтобы получить специальность врача, выписавшего рецепт.
+
+Все запросы используют актуальные названия коллекций и полей из вашей базы данных.
