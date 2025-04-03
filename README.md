@@ -225,3 +225,149 @@ db.prescriptionNew.aggregate([
 4. **Запрос 4** проходит цепочку связей: рецепт → пациент → врач, чтобы получить специальность врача, выписавшего рецепт.
 
 Все запросы используют актуальные названия коллекций и полей из вашей базы данных.
+
+
+
+
+
+
+
+
+Отлично, вот исправленные запросы под ваши названия коллекций (`Bolezn`, `Doctor`, `Lab`, `Naznachenie`, `Pazhient`, `Symtom`):
+
+---
+
+### **1. Топ 2 заболеваний по распространенности**  
+```javascript
+db.Pazhient.aggregate([
+  { $unwind: "$diseases" }, // Разворачиваем массив болезней
+  { 
+    $group: { 
+      _id: "$diseases", 
+      count: { $sum: 1 } 
+    } 
+  },
+  { 
+    $lookup: { 
+      from: "Bolezn", 
+      localField: "_id", 
+      foreignField: "_id", 
+      as: "bolezn_info" 
+    } 
+  },
+  { $unwind: "$bolezn_info" },
+  { 
+    $project: { 
+      name: "$bolezn_info.name", 
+      count: 1, 
+      _id: 0 
+    } 
+  },
+  { $sort: { count: -1 } },
+  { $limit: 2 }
+])
+```
+
+---
+
+### **2. Пациенты старше 30 лет с указанными болезнями (первые 2)**  
+```javascript
+db.Pazhient.aggregate([
+  { 
+    $match: { 
+      age: { $gt: 30 },
+      diseases: { 
+        $in: [
+          db.Bolezn.findOne({ name: "Гипертония" })._id,
+          db.Bolezn.findOne({ name: "Диабет" })._id
+        ] 
+      } 
+    } 
+  },
+  { 
+    $lookup: { 
+      from: "Bolezn", 
+      localField: "diseases", 
+      foreignField: "_id", 
+      as: "bolezn_data" 
+    } 
+  },
+  { $sort: { age: 1 } },
+  { $limit: 2 },
+  { 
+    $project: { 
+      name: 1, 
+      age: 1, 
+      diseases: "$bolezn_data.name" 
+    } 
+  }
+])
+```
+
+---
+
+### **3. Количество врачей по возрастным группам для специальности**  
+```javascript
+db.Doctor.aggregate([
+  { 
+    $match: { 
+      specialty: "Терапевт" 
+    } 
+  },
+  { 
+    $bucket: {
+      groupBy: "$experience",
+      boundaries: [0, 5, 10, 15, 20],
+      default: "Other",
+      output: { 
+        count: { $sum: 1 } 
+      }
+    } 
+  }
+])
+```
+
+---
+
+### **4. Количество рецептов по специальностям врачей**  
+```javascript
+db.Naznachenie.aggregate([
+  { 
+    $lookup: { 
+      from: "Pazhient", 
+      localField: "person", 
+      foreignField: "_id", 
+      as: "pazhient" 
+    } 
+  },
+  { $unwind: "$pazhient" },
+  { 
+    $lookup: { 
+      from: "Doctor", 
+      localField: "pazhient.doctor", 
+      foreignField: "_id", 
+      as: "doctor" 
+    } 
+  },
+  { $unwind: "$doctor" },
+  { 
+    $match: { 
+      "doctor.specialty": { 
+        $in: ["Терапевт", "Кардиолог"] 
+      } 
+    } 
+  },
+  { 
+    $group: { 
+      _id: "$doctor.specialty", 
+      total_prescriptions: { $sum: 1 } 
+    } 
+  }
+])
+```
+
+---
+
+### **Ключевые изменения:**
+1. Заменил `disease` → `Bolezn`, `peopleNew` → `Pazhient`, `prescriptionNew` → `Naznachenie`, `doctor` → `Doctor`.
+2. Убедитесь, что поля `diseases`, `person
